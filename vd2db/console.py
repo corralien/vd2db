@@ -1,42 +1,12 @@
 import click
 import pandas as pd
 import pathlib
-from sqlalchemy.engine import create_engine, URL, Engine
-from sqlalchemy.schema import MetaData, Table, Column, ForeignKey
-from sqlalchemy.sql import insert, select, text, delete
-from sqlalchemy.types import String, Integer, Float, DateTime
-from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.event import listens_for
-from sqlalchemy.ext.automap import generate_relationship, interfaces
-from datetime import datetime
-from vd2db.vdfile import read_vdfile
-from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, MofNCompleteColumn
-from sqlite3 import Connection as SQLite3Connection
-
-DIMENSIONS = ['Scenario', 'Attribute', 'Sow', 'Commodity', 'Process',
-              'Period', 'Region', 'Vintage', 'TimeSlice', 'UserConstraint']
+from vd2db.vdbase import VDBase
 
 APP_NAME = 'vd2db'
 
 CONFIG_DIR = pathlib.Path(click.get_app_dir(APP_NAME))
 DATA_DIR = pathlib.Path.home() / APP_NAME
-
-
-# enable foreign keys. if you do not do this, ON DELETE CASCADE fails silently!
-@listens_for(Engine, 'connect')
-def _set_sqlite_pragma(dbapi_connection, connection_record):
-    if isinstance(dbapi_connection, SQLite3Connection):
-        cursor = dbapi_connection.cursor()
-        cursor.execute('PRAGMA foreign_keys=ON;')
-        cursor.execute('PRAGMA auto_vacuum=FULL;')
-        cursor.close()
-
-
-def _generate_relationship(base, direction, return_fn, attrname, local_cls, referred_cls, **kw):
-    if direction is interfaces.ONETOMANY:
-        kw['cascade'] = 'all, delete'
-        kw['passive_deletes'] = True
-    return generate_relationship(base, direction, return_fn, attrname, local_cls, referred_cls, **kw)
 
 
 @click.group()
@@ -50,43 +20,18 @@ def cli():
 @click.argument('dbname')
 def init_database(dbname):
     """Initialize a new database."""
-    db = DATA_DIR / f'{dbname}.db'
-    engine = create_engine(URL.create('sqlite', database=str(db)), echo=False)
-    # engine = create_engine(URL.create('mysql', host='127.0.0.1', username='root', database=dbname), echo=False)
-    metadata = MetaData()
-
-    # Create dimension tables
-    Table('Scenario',
-          metadata,
-          Column('ID', Integer, primary_key=True),
-          Column('Name', String(255), unique=True),
-          Column('created_at', DateTime, default=datetime.now),
-          Column('updated_at', DateTime, default=datetime.now, onupdate=datetime.now))
-
-    for dim in DIMENSIONS[1:]:
-        Table(dim,
-              metadata,
-              Column('ID', Integer, primary_key=True),
-              Column('Name', String(255), unique=True))
-
-    metadata.create_all(engine)
+    db = VDBase(DATA_DIR / f'{dbname}.db')
 
 
 @click.command(name='list')
 @click.argument('dbname', nargs=1, required=True)
 def list_scenarios(dbname):
     """List scenarios in specified database."""
-    db = DATA_DIR / f'{dbname}.db'
-    engine = create_engine(URL.create('sqlite', database=str(db)), echo=False)
-    # engine = create_engine(URL.create('mysql', host='127.0.0.1', username='root', database=dbname), echo=False)
-    Base = automap_base()
-    Base.prepare(engine)
-
-    with engine.connect() as con:
-        scenarios = con.execute(select(Base.classes['Scenario'].Name)).all()
-        click.echo(f'{len(scenarios)} scenario(s) found in "{dbname}" database:')
-        for scen in scenarios:
-            click.echo(f'- {scen.Name}')
+    db = VDBase(DATA_DIR / f'{dbname}.db')
+    scenarios = db.scenarios
+    click.echo(f'{len(scenarios)} scenario(s) found in "{dbname}" database:')
+    for scen in scenarios['Name']:
+        click.echo(f'- {scen}')
 
 
 @click.command(name='import')
@@ -94,86 +39,8 @@ def list_scenarios(dbname):
 @click.argument('dbname', nargs=1, required=True)
 def import_scenario(vdfile, dbname):
     """Import specified scenario."""
-    db = DATA_DIR / f'{dbname}.db'
-    engine = create_engine(URL.create('sqlite', database=str(db)), echo=False)
-    # engine = create_engine(URL.create('mysql', host='127.0.0.1', username='root', database=dbname), echo=False)
-    Base = automap_base()  # noqa: N806
-    Base.prepare(engine)
-
-    # Read VD File
-    scenario, veda = read_vdfile(vdfile)
-    tables = veda.groupby('Attribute')
-    dimensions = {attr: df.columns[~df.isna().all()]
-                  for attr, df in tables}
-
-    # Check if the scenario already exists
-    with engine.connect() as con:
-        Scenario = Base.classes['Scenario']
-        row = con.execute(select(Scenario).where(Scenario.Name == scenario)).first()
-        if row:
-            click.echo(f'Scenario "{row.Name}" already exists.')
-            click.echo('Use "remove" command first to delete it then "import" again.')
-            return 1
-
-    # Create missing attribute tables and their view
-    with engine.begin() as con:
-        for name, dims in dimensions.items():
-            if f'_{name}' not in Base.classes:
-                # Create attribute table
-                Table(
-                    f'_{name}',
-                    Base.metadata,
-                    Column('ID', Integer, primary_key=True),
-                    *[Column(col, Integer, ForeignKey(f'{col}.ID', ondelete='CASCADE'), nullable=True)
-                      for col in dims[:-1]],
-                    Column('PV', Float)
-                ).create(con)
-
-                # Create associated view
-                part1 = [f'{col}.Name AS {col}' for col in dims[:-1]] + ['PV']
-                part2 = [f'LEFT JOIN {col} ON _{name}.{col} = {col}.ID' for col in dims[:-1]]
-                stmt = f"""CREATE VIEW {name} AS SELECT {', '.join(part1)} FROM _{name} {' '.join(part2)}"""
-                con.execute(text(stmt))
-
-    # Reload attribute tables
-    Base.prepare(engine)
-
-    # Load dictionaries
-    with engine.connect() as con:
-        name2id = {}
-        for dim in veda.columns.intersection(DIMENSIONS):
-            # Load existing data
-            cur = con.execute(select(Base.classes[dim]))
-            df = pd.DataFrame.from_records(cur, columns=cur.keys())
-
-            # Insert new data
-            uniques = veda[dim].astype('category').cat.categories
-            new_data = uniques.difference(df['Name']).to_frame(index=False, name='Name')
-            if not new_data.empty:
-                con.execute(insert(Base.classes[dim]), new_data.to_dict('records'))
-                con.commit()
-
-            # Reload data to get ID
-            cur = con.execute(select(Base.classes[dim]))
-            name2id[dim] = (pd.DataFrame(cur, columns=cur.keys())
-                              .set_index('Name')['ID'])
-
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        transient=True
-    ) as progress:
-        with engine.begin() as con:
-            # Encode labels (string -> numeric)
-            cols = veda.columns.intersection(DIMENSIONS)
-            veda[cols] = veda[cols].apply(lambda x: x.map(name2id[x.name].astype('Int32')))
-
-            for attr, df in progress.track(tables, description=f'[yellow]Processing "{vdfile.name}"', total=tables.ngroups):
-                df = df[dimensions[attr]]
-                con.execute(insert(Base.classes[f'_{attr}']), df.to_dict('records'))
-            progress.print(f'[green]Processed "{vdfile.name}": {tables.ngroups} tables - {len(veda)} records')
+    db = VDBase(DATA_DIR / f'{dbname}.db')
+    db.import_from(vdfile)
 
 
 @click.command(name='remove')
@@ -181,15 +48,8 @@ def import_scenario(vdfile, dbname):
 @click.argument('dbname', nargs=1, required=True)
 def remove_scenario(scenario, dbname):
     """Remove specified  scenario."""
-    db = DATA_DIR / f'{dbname}.db'
-    engine = create_engine(URL.create('sqlite', database=str(db)), echo=False)
-    Base = automap_base()
-    Base.prepare(engine)
-
-    with engine.connect() as con:
-        Scenario = Base.classes['Scenario']
-        con.execute(delete(Scenario).where(Scenario.Name == scenario))
-        con.commit()
+    db = VDBase(DATA_DIR / f'{dbname}.db')
+    db.remove(scenario)
 
 
 cli.add_command(init_database)
