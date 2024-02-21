@@ -1,20 +1,26 @@
-import pandas as pd
 import re
 import pathlib
+import mmap
+from collections import defaultdict
+import pandas as pd
 
 
-def read_vdfile(vdfile: pathlib.Path) -> pd.DataFrame:
-    with open(vdfile) as fp:
+def read_vdfile(vdfile: pathlib.Path) -> (str, pd.DataFrame):
+    with (open(vdfile, mode='rb') as fp,
+        mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as mm):
+
         params = {}
-        while row := fp.readline().strip():
+        while row := mm.readline().strip().decode():
             if sre := re.search(r'^\*\s*(?P<key>[^-]+)-\s*(?P<val>.+)', row):
                 params[sre.group('key')] = sre.group('val')
 
         scenario = params['ImportID'].split(':')[-1]
+        dtypes = defaultdict(lambda: str, **{params['ValueDim']: float})
 
-        options = {'comment': '*', 'header': None, 'dtype': object, 'na_values': ['-', 'NONE'],
-                   'sep': params['FieldSeparator'], 'quotechar': params['TextDelim'], 'quoting': 2}
+        options = {'comment': '*', 'header': None, 'dtype': dtypes, 'na_values': ['-', 'NONE', 'none'],
+                   'sep': params['FieldSeparator'], 'quotechar': params['TextDelim'],
+                   'encoding_errors': 'replace', 'low_memory': False}
 
-        veda = pd.read_csv(fp, names=params['Dimensions'].split(';'), **options).astype({params['ValueDim']: float})
-        veda.insert(0, 'Scenario', scenario)
+        veda = pd.read_csv(mm, names=params['Dimensions'].split(';'), **options)
+        veda.insert(0, 'Scenario', pd.Series(scenario, veda.index, dtype=str))
         return scenario, veda
