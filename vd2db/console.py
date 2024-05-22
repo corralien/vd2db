@@ -2,6 +2,7 @@ import click
 import pandas as pd
 import pathlib
 from vd2db.vdbase import VDBase
+from vd2db.vdfile import read_vdfile
 
 APP_NAME = 'vd2db'
 
@@ -35,12 +36,15 @@ def list_scenarios(dbname):
 
 
 @click.command(name='import')
+@click.option('--as',  'newname',  nargs=1, default=None, help='Rename imported scenario')
 @click.argument('vdfile', type=click.Path(path_type=pathlib.Path), nargs=1, required=True)
 @click.argument('dbname', nargs=1, required=True)
-def import_scenario(vdfile, dbname):
+def import_scenario(vdfile, dbname, newname):
     """Import specified scenario."""
     db = VDBase(DATA_DIR / f'{dbname}.db')
-    db.import_from(vdfile)
+    scenario, veda = read_vdfile(vdfile)
+    scenario = newname or scenario
+    db.import_from(scenario, veda)
 
 
 @click.command(name='remove')

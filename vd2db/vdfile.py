@@ -22,5 +22,4 @@ def read_vdfile(vdfile: pathlib.Path) -> (str, pd.DataFrame):
                    'encoding_errors': 'replace', 'low_memory': False}
 
         veda = pd.read_csv(mm, names=params['Dimensions'].split(';'), **options)
-        veda.insert(0, 'Scenario', pd.Series(scenario, veda.index, dtype=str))
         return scenario, veda
