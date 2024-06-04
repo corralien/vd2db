@@ -86,13 +86,13 @@ class VDBase:
         return pd.DataFrame(cur, columns=['ID', 'Name', 'created_at', 'updated_at'])
 
 
-    def import_from(self, vdfile):
-        """Import vdfile to database."""
+    def import_from(self, scenario, veda):
+        """Import veda scenario to database."""
         con = self.connect()
-        # 1. Load data from VD file
-        scen, veda = read_vdfile(vdfile)
-        if self.scenarios['Name'].eq(scen).any():
-            raise sqlite3.IntegrityError(f"Scenario '{scen}' already exists.")
+        # 1. Prepare data
+        veda.insert(0, 'Scenario', pd.Series(scenario, veda.index, dtype=str))
+        if self.scenarios['Name'].eq(scenario).any():
+            raise sqlite3.IntegrityError(f"Scenario '{scenario}' already exists.")
 
         dims = veda.columns.intersection(DIMENSIONS)
         tables = veda.groupby('Attribute')
