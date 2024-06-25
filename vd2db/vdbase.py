@@ -53,42 +53,47 @@ DIMENSIONS = ['Scenario', 'Attribute', 'Sow', 'Commodity', 'Process',
 class VDBase:
 
     def __init__(self, db):
-        self.db = db
-        self.con = sqlite3.connect(self.db)
+        self._vdb = db
+        self._conn = sqlite3.connect(db)
+        self._curs = self._conn.cursor()
 
         # Init database
         tmpl = Template(create_dim_table)
         for dim in DIMENSIONS:
-            self.con.execute(tmpl.render(dimension=dim))
+            self.cursor.execute(tmpl.render(dimension=dim))
             if dim != 'Scenario':
                 stmt = f"INSERT OR IGNORE INTO {dim} (ID, Name) VALUES (0, NULL)"
-                self.con.execute(stmt)
-        self.con.commit()
+                self.cursor.execute(stmt)
+        self.commit()
+
+    @property
+    def connection(self):
+        return self._conn
+
+    @property
+    def cursor(self):
+        return self._curs
+
+    def commit(self):
+        self.connection.commit()
+
+    def close(self, commit=True):
+        if commit:
+            self.commit()
+        self.connection.close()
 
     def __repr__(self):
-        return f"VDBase(db='{self.db}')"
-
-
-    def connect(self, with_fk=False):
-        """Connect to database."""
-        con = sqlite3.connect(self.db)
-        stmt = f"PRAGMA foreign_keys={int(with_fk)}"
-        con.execute(stmt)
-        return con
-
+        return f"VDBase(db='{self._vdb}')"
 
     @property
     def scenarios(self):
         """List all database scenarios."""
-        con = self.connect()
-        cur = self.con.execute('SELECT * FROM Scenario')
-        con.close()
-        return pd.DataFrame(cur, columns=['ID', 'Name', 'created_at', 'updated_at'])
-
+        res = self.cursor.execute('SELECT * FROM Scenario')
+        df = pd.DataFrame(res, columns=['ID', 'Name', 'created_at', 'updated_at'])
+        return df
 
     def import_from(self, scenario, veda):
         """Import veda scenario to database."""
-        con = self.connect()
         # 1. Prepare data
         veda.insert(0, 'Scenario', pd.Series(scenario, veda.index, dtype=str))
         if self.scenarios['Name'].eq(scenario).any():
@@ -100,34 +105,34 @@ class VDBase:
                       for attr, df in tables}
 
         # 2. Create (missing) attribute tables
-        cur = con.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '#_%' ESCAPE '#'")
-        attributes = pd.DataFrame(cur, columns=['Table']).squeeze()
+        res = self.cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '#_%' ESCAPE '#'")
+        attributes = pd.DataFrame(res, columns=['Table']).squeeze()
         table_tmpl = Template(create_attr_table)
         view_tmpl = Template(create_attr_view)
         for attr, dims in dimensions.items():
             if attr not in attributes:
-                con.execute(table_tmpl.render(attribute=attr, dimensions=dims[:-1]))
-                con.execute(view_tmpl.render(attribute=attr, dimensions=dims[:-1]))
-        con.commit()
+                self.cursor.execute(table_tmpl.render(attribute=attr, dimensions=dims[:-1]))
+                self.cursor.execute(view_tmpl.render(attribute=attr, dimensions=dims[:-1]))
+        self.connection.commit()
 
         # 3. Import (missing) attribute labels
         name2id = {}
         for dim in veda.columns.intersection(DIMENSIONS):
             # Load existing labels
-            cur = con.execute(f"SELECT Name FROM {dim}")
-            sr1 = pd.DataFrame(cur, columns=[dim])[dim]
+            res = self.cursor.execute(f"SELECT Name FROM {dim}")
+            sr1 = pd.DataFrame(res, columns=[dim])[dim]
             sr2 = veda[dim].drop_duplicates().dropna()
 
             # Insert new labels
             stmt = f"INSERT INTO {dim} (Name) VALUES (?)"
             diff = sr2[~sr2.isin(sr1)]
-            con.executemany(stmt, diff.to_frame().to_records(index=False).tolist())
+            self.cursor.executemany(stmt, diff.to_frame().to_records(index=False).tolist())
 
             # Reload labels to get ID
-            cur = con.execute(f"SELECT ID, Name FROM {dim}")
-            dmap = pd.DataFrame(cur, columns=['ID', 'Name']).set_index('Name')['ID']
+            res = self.cursor.execute(f"SELECT ID, Name FROM {dim}")
+            dmap = pd.DataFrame(res, columns=['ID', 'Name']).set_index('Name')['ID']
             name2id[dim] = pd.concat([pd.Series({float('nan'): 0}), dmap])
-        con.commit()
+        self.connection.commit()
 
         # 4. Label to ID conversion
         cols = veda.columns.intersection(DIMENSIONS)
@@ -140,25 +145,20 @@ class VDBase:
             stmt = f"INSERT INTO _{attr} ({', '.join(dims)}) VALUES ({', '.join('?' * len(dims))})"
             for idx in range(0, len(df), CHUNKSIZE):
                 chunk = df.iloc[idx:idx+CHUNKSIZE, [df.columns.get_loc(dim) for dim in dims]]
-                con.executemany(stmt, chunk.to_records(index=False).tolist())
-        con.commit()
-        con.close()
-
+                self.cursor.executemany(stmt, chunk.to_records(index=False).tolist())
+        self.connection.commit()
 
     def remove(self, scenario):
         """Remove one scenario."""
         if self.scenarios['Name'].eq(scenario).any():
-            con = self.connect(with_fk=True)
+            self.cursor.execute("PRAGMA foreign_keys=1")
             stmt = f"DELETE FROM Scenario WHERE Name = (?)"
-            con.execute(stmt, (scenario,))
-            con.commit()
-            con.close()
+            self.cursor.execute(stmt, (scenario,))
+            self.connection.commit()
+            self.cursor.execute("PRAGMA foreign_keys=0")
 
 
     def compact(self):
         """Shrink database."""
-        con = self.connect()
-        stmt = "VACUUM"
-        con.execute(stmt)
-        con.close()
+        self.cursor.execute("VACUUM")
 
