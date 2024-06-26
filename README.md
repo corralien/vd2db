@@ -64,3 +64,28 @@ Remove a scenario (`tax`) from the database:
 [...]$ vd2db scenario remove tax mystudy
 ```
 
+## Using the Python API
+
+It is also possible to use the Python code directly without using the command line. Here is an example:
+
+```python
+import pathlib
+from vd2db.vdbase import VDBase
+from vd2db.vdfile import read_vdfile
+
+gams_wrk_dir = pathlib.Path("C:/Veda/Gams_Wrk_MyStudy")
+
+# Initialize the database
+db = VDBase(gams_wrk_dir / "mystudy.db")
+
+# Import VD files
+for vdfile in gams_wrk_dir.glob("**/*.vd"):
+    print(f"Importing {vdfile}")
+    scenario, veda = read_vdfile(vdfile)
+    db.import_from(scenario, veda)
+
+# Close the database
+db.close()
+```
+
+This example shows how to initialize a database, read VD files and import scenarios using the Python API provided by `vd2db`.
