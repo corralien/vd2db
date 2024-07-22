@@ -131,7 +131,7 @@ class VDBase:
             # Reload labels to get ID
             res = self.cursor.execute(f"SELECT ID, Name FROM {dim}")
             dmap = pd.DataFrame(res, columns=['ID', 'Name']).set_index('Name')['ID']
-            name2id[dim] = pd.concat([pd.Series({float('nan'): 0}), dmap])
+            name2id[dim] = dmap
         self.connection.commit()
 
         # 4. Label to ID conversion
