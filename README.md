@@ -4,7 +4,7 @@
 
 ## Installation
 
-Ensure you have Python 3.x installed on your machine (tested on 3.9, 3.10, and 3.11). Then, you can install `vd2db` via one of the following methods:
+Ensure you have Python 3.x installed on your machine (tested on 3.9, 3.10, 3.11, 3.12 and 3.13). Then, you can install `vd2db` via one of the following methods:
 
 ### Method 1: Install directly from GitHub
 
