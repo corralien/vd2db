@@ -1,6 +1,7 @@
-import click
-import pandas as pd
 import pathlib
+
+import click
+
 from vd2db.vdbase import VDBase
 from vd2db.vdfile import read_vdfile
 
@@ -17,21 +18,20 @@ def cli():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
-cli.epilog = f"Run 'vd2db COMMAND --help' for more information on a command."
+cli.epilog = "Run 'vd2db COMMAND --help' for more information on a command."
 
 
 # Database commands
 @cli.group(name='database')
 def db_cli():
     """Manage VEDA databases."""
-    pass
 
 
 @db_cli.command(name='init')
 @click.argument('dbname')
 def db_init(dbname):
     """Initialize a new database."""
-    db = VDBase(DATA_DIR / f'{dbname}.db')
+    VDBase(DATA_DIR / f'{dbname}.db')
 
 
 @db_cli.command(name='list')
@@ -52,7 +52,6 @@ def db_delete(dbname):
 @cli.group(name='scenario')
 def sc_cli():
     """Manage scenarios in a database."""
-    pass
 
 
 @sc_cli.command(name='list')

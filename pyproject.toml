@@ -21,4 +21,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [dependency-groups]
-dev = []
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.16",
+]
