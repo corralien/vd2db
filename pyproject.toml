@@ -1,6 +1,6 @@
 [project]
 name = "vd2db"
-version = "0.7.0"
+version = "0.7.1"
 description = ""
 authors = [
     { name = "corralien", email = "damien.corral@gmail.com" },
