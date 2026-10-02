@@ -1,9 +1,7 @@
-import pathlib
 import sqlite3
-from jinja2 import Template
-import pandas as pd
-from vd2db.vdfile import read_vdfile
 
+import pandas as pd
+from jinja2 import Template
 
 create_dim_table = """\
 CREATE TABLE IF NOT EXISTS {{ dimension }} (
@@ -152,7 +150,7 @@ class VDBase:
         """Remove one scenario."""
         if self.scenarios['Name'].eq(scenario).any():
             self.cursor.execute("PRAGMA foreign_keys=1")
-            stmt = f"DELETE FROM Scenario WHERE Name = (?)"
+            stmt = "DELETE FROM Scenario WHERE Name = (?)"
             self.cursor.execute(stmt, (scenario,))
             self.connection.commit()
             self.cursor.execute("PRAGMA foreign_keys=0")

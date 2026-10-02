@@ -1,19 +1,14 @@
 # test_vdbase.py
 
+import pathlib
 import sqlite3
+
 import pandas as pd
 import pytest
-import pathlib
-from jinja2 import Template
-from vd2db.vdbase import VDBase, DIMENSIONS
+
+from vd2db.vdbase import DIMENSIONS, VDBase
 from vd2db.vdfile import read_vdfile
 
-
-#@pytest.fixture(scope='class')
-#def db(tmp_path_factory):
-#    db = tmp_path_factory.mktemp("vd2db") / "test.db"
-#    yield db
-#    db.unlink()
 
 @pytest.fixture
 def vdbase():
@@ -35,7 +30,7 @@ class TestVDBase:
             assert result is not None, f"Table {table} does not exist"
 
     def test_repr(self, vdbase):
-        assert repr(vdbase) == f"VDBase(db=':memory:')"
+        assert repr(vdbase) == "VDBase(db=':memory:')"
 
     def test_connection(self, vdbase):
         assert isinstance(vdbase.connection, sqlite3.Connection)
@@ -81,5 +76,5 @@ class TestVDBase:
     def test_close(self, vdbase):
         vdbase.close()
         with pytest.raises(sqlite3.ProgrammingError, match="Cannot operate on a closed database."):
-            scenarios = vdbase.scenarios
+            _ = vdbase.scenarios
 

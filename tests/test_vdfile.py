@@ -1,7 +1,9 @@
 import pathlib
-from pytest import fixture
-from vd2db.vdfile import read_vdfile
+
 import pandas as pd
+
+from vd2db.vdfile import read_vdfile
+
 
 def test_read_vdfile():
     data_dir = pathlib.Path(__file__).parent / "data"
